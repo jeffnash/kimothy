@@ -1,0 +1,13 @@
+# Kimi K2 Reasoning Proxy Requirements
+# Generated for the FastAPI streaming proxy that strips tool call artifacts
+
+fastapi>=0.104.0          # Web framework for the proxy service
+uvicorn[standard]>=0.24.0 # ASGI server with performance extras
+httpx>=0.25.0             # Async HTTP client for proxy requests
+rich>=13.7.0             # Pretty terminal spinner/status (forced even in non-TTY)
+
+# Optional but recommended for development:
+# pytest>=7.4.0             # For testing
+# pytest-asyncio>=0.21.0    # Async test support
+# black>=23.0.0             # Code formatting
+# ruff>=0.1.0               # Linting
