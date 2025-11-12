@@ -71,6 +71,13 @@ class Settings(BaseSettings):
     heartbeat_ms: int = Field(0, env="HEARTBEAT_MS")
     status_comments: bool = Field(True, env="STATUS_COMMENTS")
     coalesce_ms: int = Field(120, env="COALESCE_MS")
+
+    # Reasoning visibility
+    expose_reasoning_as_content: bool = Field(
+        True,
+        env="EXPOSE_REASONING_AS_CONTENT",
+        description="If true, forwards reasoning_content as delta.content for debugging"
+    )
     
     # Server settings
     port: int = Field(8928, env="PORT")

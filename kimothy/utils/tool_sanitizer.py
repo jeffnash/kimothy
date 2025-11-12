@@ -56,6 +56,7 @@ def sanitize_tool_calls(
     *,
     tool_schemas: Dict[str, Any] | None = None,
     enable_heuristics: bool = True,
+    keep_invalid: bool = False,
 ) -> List[Dict[str, Any]]:
     """Validate and deduplicate tool_calls before emission in a client-agnostic way.
 
@@ -129,6 +130,10 @@ def sanitize_tool_calls(
                     valid = isinstance(normalized, dict) and has_change
 
             if not valid:
+                if keep_invalid:
+                    # Keep the original tool call without modification
+                    sanitized.append(tc)
+                    continue
                 # Drop invalid tool call silently (callers can observe via surrounding logs)
                 continue
 

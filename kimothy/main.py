@@ -35,6 +35,51 @@ _provider = None
 _logger = None
 
 
+def _redact_api_key(key: str) -> str:
+    """Return first 3 and last 2 characters of a key, redacting the middle.
+
+    Handles empty/short keys gracefully.
+    """
+    if not key:
+        return ""
+    try:
+        if len(key) <= 5:
+            # Keep at least first and last character for very short keys
+            return f"{key[:1]}...{key[-1:]}"
+        return f"{key[:3]}...{key[-2:]}"
+    except Exception:
+        return "***"
+
+
+def _redact_auth_header(value: str) -> str:
+    """Redact an Authorization header value.
+
+    If it's a Bearer token, redact the token portion (first 3, last 2).
+    Otherwise, generically redact the whole value.
+    """
+    if value is None:
+        return ""
+    try:
+        if value.lower().startswith("bearer "):
+            token = value.split(" ", 1)[1]
+            return f"Bearer {_redact_api_key(token)}"
+        return _redact_api_key(value)
+    except Exception:
+        return "***"
+
+
+def _redact_headers(headers: dict) -> dict:
+    """Return a shallow copy of headers with Authorization redacted."""
+    try:
+        redacted = dict(headers or {})
+        for k in list(redacted.keys()):
+            if k.lower() == "authorization":
+                redacted[k] = _redact_auth_header(redacted.get(k))
+        return redacted
+    except Exception:
+        return {}
+
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize application."""
@@ -50,10 +95,19 @@ async def startup_event():
     print(f"[!] UPSTREAM: {_settings.upstream_base_url}", file=sys.stderr)
     print(f"[!] MODEL: {_settings.default_model}", file=sys.stderr)
     print(f"[!] ENSURE_STREAM: {_settings.ensure_stream}", file=sys.stderr)
-    print(f"[!] API KEY: {_settings.upstream_api_key[:20]}...", file=sys.stderr)
+    print(f"[!] API KEY: {_redact_api_key(_settings.upstream_api_key)}", file=sys.stderr)
     print(f"[!] Test with: curl -X POST http://localhost:{_settings.port}/v1/chat/completions ...\n", file=sys.stderr)
-    
-    _logger.info("Kimothy proxy started", settings=_settings.dict())
+
+    # Log startup without exposing full API key
+    try:
+        settings_dict = _settings.model_dump()
+    except Exception:
+        # Fallback for older Pydantic versions
+        settings_dict = _settings.dict()
+    if isinstance(settings_dict, dict) and "upstream_api_key" in settings_dict:
+        settings_dict["upstream_api_key"] = _redact_api_key(settings_dict.get("upstream_api_key"))
+
+    _logger.info("Kimothy proxy started", settings=settings_dict)
 
 
 # Add middleware to log ALL requests (matches original behavior)
@@ -65,7 +119,7 @@ async def access_log_middleware(request: Request, call_next):
     
     # Log incoming request
     print(f"\n[!] INCOMING REQUEST (middleware): {request.method} {request.url}", file=sys.stderr)
-    print(f"[!] Client Authorization: {request.headers.get('authorization', 'NONE')[:40]}", file=sys.stderr)
+    print(f"[!] Client Authorization: {_redact_auth_header(request.headers.get('authorization', 'NONE'))}", file=sys.stderr)
     
     response = await call_next(request)
     
@@ -164,15 +218,15 @@ async def chat_completions(request: Request):
     # LOG INCOMING REQUEST
     import sys
     print(f"\n[!] INCOMING REQUEST: {request.method} {request.url}", file=sys.stderr)
-    print(f"[!] Client Authorization: {request.headers.get('authorization', 'NONE')[:40]}", file=sys.stderr)
+    print(f"[!] Client Authorization: {_redact_auth_header(request.headers.get('authorization', 'NONE'))}", file=sys.stderr)
     print(f"[!] Content-Type: {request.headers.get('content-type', 'NONE')}", file=sys.stderr)
     print(f"[!] User-Agent: {request.headers.get('user-agent', 'NONE')}", file=sys.stderr)
     
     _logger.info("INCOMING REQUEST", 
                  method=request.method, 
                  url=str(request.url),
-                 headers=dict(request.headers),
-                 client_auth=request.headers.get('authorization', 'NONE')[:40])
+                 headers=_redact_headers(dict(request.headers)),
+                 client_auth=_redact_auth_header(request.headers.get('authorization', 'NONE')))
     
     # Validate request
     try:
@@ -217,7 +271,7 @@ async def chat_completions(request: Request):
     
     _logger.info("OUTGOING TO UPSTREAM", 
                  upstream_url=_settings.upstream_base_url,
-                 upstream_auth=provider_headers['Authorization'][:40],
+                 upstream_auth=_redact_auth_header(provider_headers.get('Authorization', '')),
                  model=model)
     
     provider_request = ProviderRequest(
@@ -336,12 +390,13 @@ async def _stream_chat_response(request: ProviderRequest) -> AsyncIterator[bytes
                             # Replace with processed tool calls (keep as dicts to match Message model)
                             if 'tool_calls' in processed:
                                 choice.delta.tool_calls = processed['tool_calls']
-                                # If schemas are available, validate upstream tool calls too (schema-only to avoid dropping partial deltas)
+                                # If schemas are available, validate upstream tool calls too (schema-only); keep invalid to avoid drops
                                 if tool_schemas:
                                     choice.delta.tool_calls = sanitize_tool_calls(
                                         choice.delta.tool_calls,
                                         tool_schemas=tool_schemas,
                                         enable_heuristics=False,
+                                        keep_invalid=True,
                                     )
                             else:
                                 choice.delta.tool_calls = None
@@ -368,22 +423,52 @@ async def _stream_chat_response(request: ProviderRequest) -> AsyncIterator[bytes
                                 choice.delta.tool_calls = sanitize_tool_calls(
                                     choice.delta.tool_calls,
                                     tool_schemas=tool_schemas,
-                                    enable_heuristics=not bool(tool_schemas)
+                                    enable_heuristics=not bool(tool_schemas),
+                                    keep_invalid=True,
                                 )
                                 # Force emission even if role/content aren't present
                                 force_emit_chunk = True
+
+                            # Optionally expose reasoning text as normal content for debugging
+                            if _settings.expose_reasoning_as_content:
+                                try:
+                                    # Stream as incremental deltas: send only current slice
+                                    if hasattr(choice.delta, 'content'):
+                                        # If already has content for this delta, append
+                                        if choice.delta.content:
+                                            choice.delta.content = f"{choice.delta.content}{reasoning_content_value}"
+                                        else:
+                                            choice.delta.content = reasoning_content_value
+                                    else:
+                                        # Ensure attribute exists
+                                        choice.delta.content = reasoning_content_value
+                                except Exception:
+                                    pass
                         
                         # Finally, don't emit reasoning_content in delta, keep it internal
                         if has_reasoning_content:
                             choice.delta.reasoning_content = None
                 
+                # Avoid premature finish if upstream signaled finish_reason=tool_calls but we have no usable tool_calls
+                try:
+                    any_tools = any(
+                        hasattr(c, 'delta') and c.delta and c.delta.tool_calls not in (None, [])
+                        for c in chunk.choices
+                    )
+                    if not any_tools:
+                        for c in chunk.choices:
+                            if hasattr(c, 'finish_reason') and c.finish_reason == 'tool_calls':
+                                c.finish_reason = None
+                except Exception:
+                    pass
+
                 # Only emit chunk if it has content (always emit first chunk with role)
                 # Ensure we're emitting Assistant chunks even with reasoning_content
                 has_content = any(
                     hasattr(choice, 'delta') and choice.delta and (
                         choice.delta.role is not None or
                         choice.delta.content is not None or
-                        choice.delta.tool_calls is not None
+                        (choice.delta.tool_calls not in (None, []))
                     ) for choice in chunk.choices
                 )
                 

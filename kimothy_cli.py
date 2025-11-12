@@ -49,6 +49,19 @@ def main():
         default=os.getenv("DEFAULT_MODEL"),
         help="Default model when not specified in request"
     )
+
+    # Reasoning visibility toggle (default is enabled in Settings)
+    try:
+        from argparse import BooleanOptionalAction
+        _bool_action = BooleanOptionalAction
+    except Exception:
+        _bool_action = 'store_true'
+    parser.add_argument(
+        "--expose-reasoning-as-content",
+        action=_bool_action if _bool_action != 'store_true' else 'store_true',
+        default=None,
+        help="Forward reasoning_content as delta.content in stream (default: on)"
+    )
     
     parser.add_argument(
         "--log-level",
@@ -71,6 +84,10 @@ def main():
     
     if args.preset:
         os.environ["PRESET"] = args.preset
+    
+    # Apply reasoning exposure flag if explicitly provided
+    if args.expose_reasoning_as_content is not None:
+        os.environ["EXPOSE_REASONING_AS_CONTENT"] = "1" if args.expose_reasoning_as_content else "0"
     
     # Import after setting environment
     from kimothy.config import get_settings

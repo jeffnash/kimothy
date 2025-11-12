@@ -172,6 +172,9 @@ venv.bak/
 .dmypy.json
 dmypy.json
 
+# Factory
+.factory
+
 # Pyre type checker
 .pyre/
 

@@ -98,6 +98,7 @@ Logging & debugging
 - `LOG_REQUESTS=1` — Logs incoming/outgoing meta.
 - `LOG_UPSTREAM_LINES=1` — Log every upstream SSE line.
 - `LOG_DOWNSTREAM_LINES=1` — Log every downstream SSE line.
+- `EXPOSE_REASONING_AS_CONTENT=1` — Debug option to forward `reasoning_content` as normal `delta.content` text.
 
 Tool-call compatibility
 Retry on 429

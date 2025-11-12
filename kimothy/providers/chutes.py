@@ -41,7 +41,29 @@ class ChutesProvider(BaseProvider):
         # DEBUG LOGGING
         import sys
         print(f"\n[CHUTES DEBUG] URL: {url}", file=sys.stderr)
-        print(f"[CHUTES DEBUG] Headers: {json.dumps({k: v[:50] if k.lower() == 'authorization' else v for k, v in headers.items()}, indent=2)}", file=sys.stderr)
+        def _redact_auth(v: str) -> str:
+            try:
+                if v and isinstance(v, str) and v.lower().startswith("bearer "):
+                    token = v.split(" ", 1)[1]
+                    # first 3 and last 2
+                    if len(token) <= 5:
+                        red = f"{token[:1]}...{token[-1:]}"
+                    else:
+                        red = f"{token[:3]}...{token[-2:]}"
+                    return f"Bearer {red}"
+                # generic fallback redaction
+                if not v:
+                    return ""
+                if len(v) <= 5:
+                    return f"{v[:1]}...{v[-1:]}"
+                return f"{v[:3]}...{v[-2:]}"
+            except Exception:
+                return "***"
+        print(
+            f"[CHUTES DEBUG] Headers: "
+            + json.dumps({k: _redact_auth(v) if k.lower() == 'authorization' else v for k, v in headers.items()}, indent=2),
+            file=sys.stderr,
+        )
         print(f"[CHUTES DEBUG] Request data: {json.dumps(transformed, default=str, indent=2)}", file=sys.stderr)
         
         if is_stream:
