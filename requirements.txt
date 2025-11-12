@@ -1,10 +1,13 @@
-# Kimi K2 Reasoning Proxy Requirements
-# Generated for the FastAPI streaming proxy that strips tool call artifacts
-
+pydantic>=2.0.0           # Data validation
+pydantic-settings>=2.0.0  # Settings management (BaseSettings moved here)
 fastapi>=0.104.0          # Web framework for the proxy service
 uvicorn[standard]>=0.24.0 # ASGI server with performance extras
 httpx>=0.25.0             # Async HTTP client for proxy requests
-rich>=13.7.0             # Pretty terminal spinner/status (forced even in non-TTY)
+rich>=13.7.0              # Pretty terminal spinner/status (forced even in non-TTY)
+python-dotenv>=1.0.0      # Environment variable management
+
+# Optional JSON repair helper for malformed tool-call args
+json-repair>=0.7.0
 
 # Optional but recommended for development:
 # pytest>=7.4.0             # For testing
